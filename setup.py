@@ -22,7 +22,8 @@ setup(
     version="0.0.1",
     install_requires=[
         'prometheus-client>=0.21.1',
-        'RouterOS-api>=0.21.0'
+        'RouterOS-api>=0.21.0',
+        'dynaconf>=3.2.10'
     ],
     entry_points={
         'console_scripts': [

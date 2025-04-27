@@ -2,9 +2,9 @@ import routeros_api
 
 
 class ROS:
-    def __init__(self, host: str, username: str, password: str):
+    def __init__(self, mtik_host: str, username: str, password: str):
         self.client = routeros_api.RouterOsApiPool(
-            host,
+            mtik_host,
             username=username,
             password=password,
             port=8728,
