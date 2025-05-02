@@ -34,6 +34,7 @@ func Start() {
 	)
 	registry.MustRegister(c...)
 
+	// todo health endpoint
 	http.Handle(
 		metricsPath, promhttp.HandlerFor(
 			registry,
@@ -50,7 +51,7 @@ func Start() {
 func createCollector(m map[string]interface{}, colls *[]prometheus.Collector) {
 	switch m["metric_type"] {
 	case "gauge":
-		rawLabels, ok := m["labels"].([]interface{})
+		rawLabels, ok := m["labels"].([]interface{}) //todo how to make this less ugly?
 		if !ok {
 			logger.Log.Warnf("Invalid labels format for metric: %s", m["name"])
 			return
