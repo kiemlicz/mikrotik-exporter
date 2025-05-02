@@ -6,14 +6,18 @@ metrics:
   host: 0.0.0.0
   port: 9111
   path: "/metrics"
-  collect: []
-  #  - command: ""
-  #    parse: ""
-  #    metric_type: "" # gauge
 
-targets: {}
+#targets: {}
 # MEX_TARGETS_192_168_1_1_PASSWORD=abc will override nested password
-#targets:
-#  192.168.1.1:
-#    username: admin
-#    password: admin
+targets:
+  192.168.1.1:
+    username: admin
+    password: admin
+    min_interval_sec: 30
+    collect:
+      - command: ""
+        parse: ""
+        metric_type: "gauge"
+        name: "aaa"
+        labels:
+          - "abc"
