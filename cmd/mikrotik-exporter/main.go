@@ -32,7 +32,7 @@ func setupConfig() {
 	viper.AutomaticEnv()
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
-	pflag.String("log.level", "", "Log level (overrides YAML)")
+	pflag.String("log.level", "", "Log level (overrides mex-settings.yaml file)")
 	pflag.Parse()
 	_ = viper.BindPFlags(pflag.CommandLine)
 
