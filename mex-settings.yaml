@@ -1,13 +1,20 @@
+log:
+  level: warning
+
 # Metrics webserver settings
 metrics:
   host: 0.0.0.0
   port: 9111
   path: "/metrics"
 
-log:
-  level: debug
+collect: []
+#  - command: ""
+#    parse: ""
+#    type: "" # gauge
 
 targets: {}
+
+# MEX_TARGETS_192_168_1_1_PASSWORD=abc will override nested password
 #targets:
 #  192.168.1.1:
 #    username: admin
