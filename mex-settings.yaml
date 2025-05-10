@@ -11,6 +11,7 @@ metrics:
 # MEX_TARGETS_192_168_1_1_PASSWORD=abc will override nested password
 targets:
   192.168.1.1:
+    port: 8728
     username: admin
     password: admin
     min_interval_sec: 30

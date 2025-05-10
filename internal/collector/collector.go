@@ -10,16 +10,39 @@ import (
 	"net/http"
 )
 
+//rename better
+//type MikrotikCollector struct {
+//	devices []MikrotikDevice
+//}
+//
+//// Collect called every scrape interval
+//func (collector *MikrotikCollector) Collect(ch chan<- prometheus.Metric) {
+//
+//	//will force refresh if stale data
+//
+//	for _, d := range collector.devices {
+//
+//	}
+//}
+
 func Start() {
+	var connectionPool = &ConnectionPool{}
 	var c []prometheus.Collector
 	var metricsPath = viper.GetString("metrics.path")
 	var addr = fmt.Sprintf("%s:%d", viper.GetString("metrics.host"), viper.GetInt("metrics.port"))
 	registry := prometheus.NewRegistry()
-
 	targets := viper.GetStringMap("targets")
-	for _, config := range targets { // targetIP, config
+
+	for targetIP, config := range targets { // targetIP, config
+		connectionPool.GetConnector(
+			targetIP,
+			viper.GetInt("targets.port"),
+			viper.GetString("targets.username"),
+			viper.GetString("targets.password"),
+		)
 		if targetConfig, ok := config.(map[string]interface{}); ok {
 			collect := targetConfig["collect"].([]interface{})
+
 			for _, item := range collect {
 				if metric, ok := item.(map[string]interface{}); ok {
 					createCollector(metric, &c)
