@@ -1,6 +1,7 @@
 package collector
 
 import (
+	"context"
 	"fmt"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
@@ -8,28 +9,105 @@ import (
 	"github.com/spf13/viper"
 	"mikrotik-exporter/internal/logger"
 	"net/http"
-	"sync"
+	"time"
 )
 
 type MikrotikMetric struct {
 	desc       *prometheus.Desc
 	metricType prometheus.ValueType
-	request    string //todo different type?
-	parse      string
+
+	lastRefresh time.Time
+	lastValue   string
+
+	//mutex ?
+
+}
+
+func NewMikrotikMetric(
+	desc *prometheus.Desc,
+	metricType prometheus.ValueType,
+	connector *MikrotikConnector,
+	request MikrotikRequest,
+	parse string,
+	ctx context.Context,
+	interval time.Duration,
+) *MikrotikMetric {
+	m := &MikrotikMetric{
+		desc:       desc,
+		metricType: metricType,
+	}
+	go m.update(connector, request, parse, interval, ctx)
+	return m
+}
+
+func (m *MikrotikMetric) update(
+	connector *MikrotikConnector,
+	request MikrotikRequest,
+	parse string,
+	interval time.Duration,
+	ctx context.Context,
+) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			//lock?
+			// fetch and update logic here
+			m.Request(connector, request)
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (m *MikrotikMetric) Request(connector *MikrotikConnector, request MikrotikRequest) {
+	response, err := connector.Run(request)
+	if err == nil {
+		// parse the response
+		m.lastValue = string(response)
+		m.lastRefresh = time.Now()
+	} else {
+		logger.Log.Errorf("Failed to fetch data: %v", err)
+	}
 }
 
 type MikrotikDeviceCollector struct {
-	device     *MikrotikDevice
-	deviceData sync.Map
-	metrics    map[string]MikrotikMetric
+	connector   *MikrotikConnector
+	minInterval time.Duration
+	metrics     map[string]*MikrotikMetric
 }
 
-func NewMikrotikDeviceCollector(host string, port int, username, password string, collect []interface{}) MikrotikDeviceCollector {
-	m := make(map[string]MikrotikMetric)
+func NewMikrotikDeviceCollector(
+	host string,
+	port int,
+	username string,
+	password string,
+	interval time.Duration,
+	collect []interface{},
+) MikrotikDeviceCollector {
+	m := make(map[string]*MikrotikMetric)
+
+	connector := &MikrotikConnector{
+		device: &MikrotikDevice{
+			Host:     host,
+			Port:     port,
+			Username: username,
+			Password: password,
+		},
+	}
+
 	for _, item := range collect {
 		if metric, ok := item.(map[string]interface{}); ok {
 			name := metric["name"].(string)
-			labels := metric["labels"].([]string)
+
+			//labels := metric["labels"].([]string) //why this doesn't work?
+			labelsInterface := metric["labels"].([]interface{})
+			labels := make([]string, len(labelsInterface))
+			for i, v := range labelsInterface {
+				labels[i] = v.(string)
+			}
+
 			desc := prometheus.NewDesc(
 				name,
 				"",
@@ -43,29 +121,35 @@ func NewMikrotikDeviceCollector(host string, port int, username, password string
 			}
 			request := metric["request"].(string)
 			parse := metric["parse"].(string)
-			m[name] = MikrotikMetric{
-				desc:       desc,
-				metricType: valueType,
-				request:    request,
-				parse:      parse,
-			}
+
+			m[name] = NewMikrotikMetric(
+				desc,
+				valueType,
+				connector,
+				request,
+				parse,
+				context.Background(),
+				interval,
+			)
 		}
 	}
-	device := &MikrotikDevice{
-		Host:     host,
-		Port:     port,
-		Username: username,
-		Password: password,
-	}
+
 	return MikrotikDeviceCollector{
-		device:     device,
-		deviceData: sync.Map{},
-		metrics:    m,
+		connector:   connector,
+		minInterval: interval,
+		metrics:     m,
 	}
 }
 
-func (c *MikrotikDeviceCollector) Collect() { //same signature as proms?
-	//
+func (c *MikrotikDeviceCollector) Collect(ch chan<- prometheus.Metric) {
+	for _, metric := range c.metrics {
+		ch <- prometheus.MustNewConstMetric(
+			metric.desc,
+			metric.metricType,
+			1,                //todo something more clever
+			metric.lastValue, // todo match to labels
+		)
+	}
 }
 
 type MikrotikCollector struct {
@@ -82,7 +166,7 @@ func (collector *MikrotikCollector) Collect(ch chan<- prometheus.Metric) {
 	//will force refresh if stale data
 
 	for _, d := range collector.devices {
-
+		d.Collect(ch)
 	}
 }
 
@@ -96,13 +180,15 @@ func Start() {
 	for targetIP, config := range targets { // targetIP, config
 		if targetConfig, ok := config.(map[string]interface{}); ok {
 			collect := targetConfig["collect"].([]interface{})
-			d = append(d, NewMikrotikDeviceCollector( //isn't it copied?
-				targetIP,
-				viper.GetInt("targets.port"),
-				viper.GetString("targets.username"),
-				viper.GetString("targets.password"),
-				collect,
-			))
+			d = append(d,
+				NewMikrotikDeviceCollector( //isn't it copied?
+					targetIP,
+					viper.GetInt("targets.port"),
+					viper.GetString("targets.username"),
+					viper.GetString("targets.password"),
+					viper.GetDuration("targets.interval"),
+					collect,
+				))
 		}
 	}
 

@@ -14,9 +14,9 @@ targets:
     port: 8728
     username: admin
     password: admin
-    min_interval_sec: 30
+    interval: 30s # device level?
     collect:
-      - command: ""
+      - request: ""
         parse: ""
         metric_type: "gauge"
         name: "aaa"
