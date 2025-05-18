@@ -1,3 +1,8 @@
+# Note
+
+Pointless project - with recent Router OS versions the json exporter works nicely
+
+
 # Mikrotik exporter
 
 All mikrotik-exporters that I found didn't allow to extract custom metrics (e.g. inactive routes)
