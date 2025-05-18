@@ -14,11 +14,13 @@ targets:
     port: 8728
     username: admin
     password: admin
+    useTls: false
     interval: 30s # device level?
     collect:
-      - request: ""
-        parse: ""
+      - request: "/api/route?disabled=false"
         metric_type: "gauge"
-        name: "aaa"
+        name: "routes"
         labels:
-          - "abc"
+          - "dst-address"
+          - "active"
+          - "distance"

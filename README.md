@@ -8,6 +8,3 @@ It's not meant to compete with other exporters, but to be a simple solution to a
 
 # Building
 
-```
-
-```

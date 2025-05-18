@@ -2,69 +2,110 @@ package collector
 
 import (
 	"fmt"
-	"github.com/go-routeros/routeros/v3"
-	"strings"
-	"sync"
+	"net/http"
+	"path"
 	"time"
 )
 
-type MikrotikRequest = string
-type MikrotikResponse = string
-
-type MikrotikDevice struct {
-	Host                string
-	Port                int
-	Username            string
-	Password            string
-	connectTimeout      time.Duration
-	connectionKeepalive time.Duration
+type MetricRequest struct {
+	MetricName string
+	Query      string
+}
+type MetricResponse struct {
+	MetricName string
+	Data       map[string]string
+	Err        error
 }
 
 type MikrotikConnector struct {
-	device *MikrotikDevice
-	conn   *routeros.Client
-	timer  *time.Timer
-	mutex  sync.Mutex
+	url      string
+	username string
+	password string
+
+	client *http.Client
+
+	responseChannel chan *MetricResponse
 }
 
-func (mc *MikrotikConnector) login() {
-	mc.mutex.Lock()
-	defer mc.mutex.Unlock()
+func NewMikrotikConnector(
+	host string,
+	port int,
+	username string,
+	password string,
+	tls bool,
+	connectTimeout time.Duration,
+	connectionKeepalive time.Duration,
+) *MikrotikConnector {
+	u := fmt.Sprintf("https://%s:%d", host, port)
+	if !tls {
+		u = fmt.Sprintf("http://%s:%d", host, port)
+	}
 
-	if mc.conn == nil {
-		c, err := routeros.DialTimeout(
-			fmt.Sprintf("%s:%d", mc.device.Host, mc.device.Port),
-			mc.device.Username,
-			mc.device.Password,
-			mc.device.connectTimeout,
-		)
+	client := &http.Client{
+		Timeout: connectTimeout,
+		Transport: &http.Transport{
+			IdleConnTimeout: connectionKeepalive,
+		},
+	}
+
+	return &MikrotikConnector{
+		url:           u,
+		username:      username,
+		password:      password,
+		client:        client,
+		resultChannel: make(chan *MetricResponse),
+	}
+}
+
+func (mc *MikrotikConnector) Request(request MetricRequest) {
+	go func() {
+		url := path.Join(mc.url, request.Query)
+		req, err := http.NewRequest("GET", url, nil)
 		if err != nil {
-			//?
-		}
-		mc.conn = c
-		mc.conn.Async()
-		if mc.timer != nil {
-			mc.timer.Stop()
-		}
-		mc.timer = time.AfterFunc(mc.device.connectionKeepalive, func() {
-			mc.mutex.Lock()
-			defer mc.mutex.Unlock()
-			if mc.conn != nil {
-				mc.conn.Close()
-				mc.conn = nil
+			mc.responseChannel <- &MetricResponse{
+				MetricName: request.MetricName,
+				Data:       map[string]string{},
+				Err:        err,
 			}
-		})
-	}
-}
+			return
+		}
 
-func (mc *MikrotikConnector) Run(request MikrotikRequest) (MikrotikResponse, error) {
-	mc.login()
-	mc.timer.Reset(mc.device.connectionKeepalive)
-	reply, err := mc.conn.RunArgs(strings.Split(string(request), " "))
-	//fixme very bad, check how to read from channel
-	if err != nil {
-		return "", err
-	} else {
-		return reply.String(), nil
-	}
+		resp, err := mc.client.Do(req)
+		defer resp.Body.Close()
+		var data []map[string]string
+		if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+			mc.responseChannel <- &MetricResponse{
+				MetricName: request.MetricName,
+				Data:       data,
+				Err:        err,
+			}
+			return
+		}
+		//fixme cont here
+		// For simplicity, send the first object or empty if none
+		result := map[string]string{}
+		if len(data) > 0 {
+			result = data[0]
+		}
+		mc.responseChannel <- &MetricResponse{
+			MetricName: request.MetricName,
+			Data:       result,
+			Err:        nil,
+		}
+
+		if err != nil {
+			mc.responseChannel <- &MetricResponse{
+				MetricName: request.MetricName,
+				Data:       map[string]string{},
+				Err:        err,
+			}
+		} else {
+
+			mc.responseChannel <- &MetricResponse{
+				MetricName: request.MetricName,
+				Data:       map[string]string{},
+				Err:        nil,
+			}
+		}
+	}()
 }

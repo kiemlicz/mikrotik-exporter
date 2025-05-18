@@ -17,18 +17,14 @@ type MikrotikMetric struct {
 	metricType prometheus.ValueType
 
 	lastRefresh time.Time
-	lastValue   string
-
-	//mutex ?
-
+	lastValue   map[string]string
 }
 
 func NewMikrotikMetric(
 	desc *prometheus.Desc,
 	metricType prometheus.ValueType,
 	connector *MikrotikConnector,
-	request MikrotikRequest,
-	parse string,
+	request MetricRequest,
 	ctx context.Context,
 	interval time.Duration,
 ) *MikrotikMetric {
@@ -36,33 +32,25 @@ func NewMikrotikMetric(
 		desc:       desc,
 		metricType: metricType,
 	}
-	go m.update(connector, request, parse, interval, ctx)
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				//lock?
+				m.Refresh(connector, request)
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 	return m
 }
 
-func (m *MikrotikMetric) update(
-	connector *MikrotikConnector,
-	request MikrotikRequest,
-	parse string,
-	interval time.Duration,
-	ctx context.Context,
-) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ticker.C:
-			//lock?
-			// fetch and update logic here
-			m.Request(connector, request)
-		case <-ctx.Done():
-			return
-		}
-	}
-}
+func (m *MikrotikMetric) Refresh(connector *MikrotikConnector, request MetricRequest) {
+	connector.Request(request)
 
-func (m *MikrotikMetric) Request(connector *MikrotikConnector, request MikrotikRequest) {
-	response, err := connector.Run(request)
 	if err == nil {
 		// parse the response
 		m.lastValue = string(response)
@@ -70,6 +58,7 @@ func (m *MikrotikMetric) Request(connector *MikrotikConnector, request MikrotikR
 	} else {
 		logger.Log.Errorf("Failed to fetch data: %v", err)
 	}
+
 }
 
 type MikrotikDeviceCollector struct {
@@ -83,19 +72,21 @@ func NewMikrotikDeviceCollector(
 	port int,
 	username string,
 	password string,
+	useTls bool,
 	interval time.Duration,
 	collect []interface{},
 ) MikrotikDeviceCollector {
 	m := make(map[string]*MikrotikMetric)
 
-	connector := &MikrotikConnector{
-		device: &MikrotikDevice{
-			Host:     host,
-			Port:     port,
-			Username: username,
-			Password: password,
-		},
-	}
+	connector := NewMikrotikConnector(
+		host,
+		port,
+		username,
+		password,
+		useTls,
+		time.Duration(10)*time.Second,
+		time.Duration(15)*time.Second,
+	)
 
 	for _, item := range collect {
 		if metric, ok := item.(map[string]interface{}); ok {
@@ -120,14 +111,12 @@ func NewMikrotikDeviceCollector(
 				return MikrotikDeviceCollector{}
 			}
 			request := metric["request"].(string)
-			parse := metric["parse"].(string)
 
 			m[name] = NewMikrotikMetric(
 				desc,
 				valueType,
 				connector,
 				request,
-				parse,
 				context.Background(),
 				interval,
 			)
@@ -186,6 +175,7 @@ func Start() {
 					viper.GetInt("targets.port"),
 					viper.GetString("targets.username"),
 					viper.GetString("targets.password"),
+					viper.GetBool("targets.useTls"),
 					viper.GetDuration("targets.interval"),
 					collect,
 				))
